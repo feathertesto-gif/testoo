@@ -34,6 +34,18 @@ jobs:
           echo "MAPS_API_KEY=placeholder" > .env.example
           echo "FIREBASE_API_KEY=placeholder" >> .env.example
 
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair \
+            -alias androiddebugkey \
+            -keypass android \
+            -keystore debug.keystore \
+            -storepass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
