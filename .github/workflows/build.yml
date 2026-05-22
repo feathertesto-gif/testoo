@@ -36,6 +36,7 @@ jobs:
 
       - name: Generate release keystore
         run: |
+          rm -f my-upload-key.jks
           keytool -genkeypair \
             -alias upload \
             -keypass bgwrap123 \
