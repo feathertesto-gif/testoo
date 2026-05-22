@@ -34,6 +34,11 @@ jobs:
           echo "MAPS_API_KEY=placeholder" > .env.example
           echo "FIREBASE_API_KEY=placeholder" >> .env.example
 
+      - name: Remove duplicate PNG icons
+        run: |
+          find app/src/main/res -name "*.png" -path "*/mipmap*" -delete
+          echo "Deleted all PNG icons, keeping only webp"
+
       - name: Generate release keystore
         run: |
           rm -f my-upload-key.jks
