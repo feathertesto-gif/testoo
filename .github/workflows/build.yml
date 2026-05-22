@@ -34,12 +34,50 @@ jobs:
           echo "MAPS_API_KEY=placeholder" > .env.example
           echo "FIREBASE_API_KEY=placeholder" >> .env.example
 
-      - name: Fix icon resources
+      - name: Fix icon resources and missing resources
         run: |
+          # Remove all old icons
+          find app/src/main/res -name "*.webp" -path "*/mipmap*" -delete
           find app/src/main/res -name "*.png" -path "*/mipmap*" -delete
+
+          # Create simple colored icon for all sizes
+          sudo apt-get install -y imagemagick -q
+
+          for size in hdpi:72 mdpi:48 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            folder="${size%:*}"
+            px="${size#*:}"
+            mkdir -p app/src/main/res/mipmap-$folder
+            convert -size ${px}x${px} xc:#4CAF50 \
+              -fill white -gravity center \
+              -pointsize $((px/3)) -annotate 0 "BG" \
+              app/src/main/res/mipmap-$folder/ic_launcher.png
+            cp app/src/main/res/mipmap-$folder/ic_launcher.png \
+               app/src/main/res/mipmap-$folder/ic_launcher_round.png
+          done
+
+          # Remove anydpi xml that references missing files
           rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
-          echo "Fixed icon resources"
+
+          # Create missing xml resources
+          mkdir -p app/src/main/res/xml
+          cat > app/src/main/res/xml/data_extraction_rules.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <data-extraction-rules>
+              <cloud-backup>
+                  <exclude domain="root" path="."/>
+              </cloud-backup>
+          </data-extraction-rules>
+          EOF
+
+          cat > app/src/main/res/xml/backup_rules.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <full-backup-content>
+              <exclude domain="root" path="."/>
+          </full-backup-content>
+          EOF
+
+          echo "All resources fixed!"
 
       - name: Generate release keystore
         run: |
