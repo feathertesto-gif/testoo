@@ -39,6 +39,15 @@ jobs:
           # Remove only webp files, keep your PNG icons!
           find app/src/main/res -name "*.webp" -path "*/mipmap*" -delete
 
+          # Copy ic_launcher as ic_launcher_round for all sizes
+          for folder in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
+            if [ -f app/src/main/res/mipmap-$folder/ic_launcher.png ]; then
+              cp app/src/main/res/mipmap-$folder/ic_launcher.png \
+                 app/src/main/res/mipmap-$folder/ic_launcher_round.png
+              echo "Created ic_launcher_round for $folder"
+            fi
+          done
+
           # Remove anydpi xml that references missing files
           rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
@@ -60,10 +69,6 @@ jobs:
               <exclude domain="root" path="."/>
           </full-backup-content>
           EOF
-
-          # Show what icons exist
-          echo "Icons found:"
-          find app/src/main/res -name "*.png" -path "*/mipmap*"
 
           echo "All resources fixed!"
 
