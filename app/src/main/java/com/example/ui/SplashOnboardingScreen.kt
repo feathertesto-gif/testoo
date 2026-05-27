@@ -397,10 +397,9 @@ fun IllustrationRemoveBg() {
         // Beautiful checkerboard on transparent side (right of sliderX)
         clipRect(left = sliderX, top = top, right = left + rectSize.width, bottom = top + rectSize.height) {
             val checkWidth = 10.dp.toPx()
-            val stepSize = maxOf(1, checkWidth.toInt())
-            for (currX in sliderX.toInt()..(left + rectSize.width).toInt() step stepSize) {
-                for (currY in top.toInt()..(top + rectSize.height).toInt() step stepSize) {
-                    val isWhite = ((currX / stepSize) + (currY / stepSize)) % 2 == 0
+            for (currX in sliderX.toInt()..(left + rectSize.width).toInt() step checkWidth.toInt()) {
+                for (currY in top.toInt()..(top + rectSize.height).toInt() step checkWidth.toInt()) {
+                    val isWhite = ((currX / checkWidth.toInt()) + (currY / checkWidth.toInt())) % 2 == 0
                     drawRect(
                         color = if (isWhite) Color.White else Color(0xFFE2E8F0),
                         topLeft = Offset(currX.toFloat(), currY.toFloat()),

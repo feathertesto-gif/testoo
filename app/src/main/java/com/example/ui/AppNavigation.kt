@@ -1,6 +1,8 @@
 package com.example.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import android.content.Context
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -23,6 +25,9 @@ fun AppNavigation(
     navController: NavHostController = rememberNavController()
 ) {
     val context = LocalContext.current
+    val sharedPrefs = remember(context) {
+        context.getSharedPreferences("bgwrap_prefs", Context.MODE_PRIVATE)
+    }
     
     // Wire Database and Repository safely using LocalContext
     val db = AppDatabase.getDatabase(context)
@@ -41,8 +46,12 @@ fun AppNavigation(
         composable(AppDestinations.SPLASH) {
             SplashScreen(
                 onSplashComplete = {
-                    navController.navigate(AppDestinations.ONBOARDING) {
-                        popUpTo(AppDestinations.SPLASH) { inclusive = true }
+                    val hasCompletedOnboarding = sharedPrefs.getBoolean("has_completed_onboarding", false)
+                    val destination = if (hasCompletedOnboarding) AppDestinations.HOME else AppDestinations.ONBOARDING
+                    if (navController.currentDestination?.route == AppDestinations.SPLASH) {
+                        navController.navigate(destination) {
+                            popUpTo(AppDestinations.SPLASH) { inclusive = true }
+                        }
                     }
                 }
             )
@@ -52,8 +61,11 @@ fun AppNavigation(
         composable(AppDestinations.ONBOARDING) {
             OnboardingScreen(
                 onOnboardingComplete = {
-                    navController.navigate(AppDestinations.HOME) {
-                        popUpTo(AppDestinations.ONBOARDING) { inclusive = true }
+                    sharedPrefs.edit().putBoolean("has_completed_onboarding", true).apply()
+                    if (navController.currentDestination?.route == AppDestinations.ONBOARDING) {
+                        navController.navigate(AppDestinations.HOME) {
+                            popUpTo(AppDestinations.ONBOARDING) { inclusive = true }
+                        }
                     }
                 }
             )

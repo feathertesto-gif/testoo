@@ -24,9 +24,9 @@ android {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD") ?: "bgwrap123"
+      storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD") ?: "bgwrap123"
+      keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -119,79 +119,3 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
-
-tasks.register("generateReleaseKeystore") {
-    doLast {
-        val keystoreFile = file("${rootDir}/my-upload-key.jks")
-        if (!keystoreFile.exists()) {
-            println("Generating release keystore at: ${keystoreFile.absolutePath}")
-            val cmd = listOf(
-                "keytool", "-genkeypair",
-                "-alias", "upload",
-                "-keyalg", "RSA",
-                "-keysize", "2048",
-                "-validity", "10000",
-                "-keystore", keystoreFile.absolutePath,
-                "-storepass", "bgwrap123",
-                "-keypass", "bgwrap123",
-                "-dname", "CN=BGWrap, OU=AIStudio, O=Google, L=MountainView, S=California, C=US"
-            )
-            println("Running command: ${cmd.joinToString(" ")}")
-            val process = ProcessBuilder(cmd).start()
-            val exitCode = process.waitFor()
-            if (exitCode == 0) {
-                println("Release keystore generated successfully!")
-            } else {
-                val errorStream = process.errorStream.bufferedReader().readText()
-                println("Error generating keystore. Exit code: $exitCode. Error: $errorStream")
-            }
-        } else {
-            println("Release keystore already exists.")
-        }
-    }
-}
-
-tasks.register("copyReleaseBinaries") {
-    dependsOn("assembleRelease", "bundleRelease", "assembleDebug")
-    doLast {
-        val apkFile = file("${project.layout.buildDirectory.get().asFile}/outputs/apk/release/app-release.apk")
-        val aabFile = file("${project.layout.buildDirectory.get().asFile}/outputs/bundle/release/app-release.aab")
-        val debugApkFile = file("${project.layout.buildDirectory.get().asFile}/outputs/apk/debug/app-debug.apk")
-        
-        // These are the files at the absolute root '/' which corresponds to the IDE workspace root
-        val apkDestRoot = file("/BGWrap_release.apk")
-        val aabDestRoot = file("/BGWrap_release.aab")
-        val debugApkDestRoot = file("/BGWrap_debug.apk")
-        
-        fun printSize(f: java.io.File, name: String) {
-            val sizeInMb = f.length().toDouble() / (1024 * 1024)
-            println("FILE INFO: $name is %.2f MB (${f.length()} bytes) at ${f.absolutePath}")
-        }
-        
-        if (apkFile.exists()) {
-            apkFile.copyTo(apkDestRoot, overwrite = true)
-            println("SUCCESS: Copied signed release APK to absolute root /")
-            printSize(apkDestRoot, "apkDestRoot")
-        } else {
-            println("WARNING: Release APK not found at: ${apkFile.absolutePath}")
-        }
-        
-        if (aabFile.exists()) {
-            aabFile.copyTo(aabDestRoot, overwrite = true)
-            println("SUCCESS: Copied signed release AAB to absolute root /")
-            printSize(aabDestRoot, "aabDestRoot")
-        } else {
-            println("WARNING: Release AAB not found at: ${aabFile.absolutePath}")
-        }
-
-        if (debugApkFile.exists()) {
-            debugApkFile.copyTo(debugApkDestRoot, overwrite = true)
-            println("SUCCESS: Copied debug APK to absolute root /")
-            printSize(debugApkDestRoot, "debugApkDestRoot")
-        } else {
-            println("WARNING: Debug APK not found at: ${debugApkFile.absolutePath}")
-        }
-    }
-}
-
-

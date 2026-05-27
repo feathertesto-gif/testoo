@@ -119,7 +119,7 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    if (cutoutBmp != null) {
+                    if (originalBmp != null) {
                         IconButton(
                             onClick = {
                                 performHapticClick()
@@ -290,10 +290,10 @@ fun EditorScreen(
             }
 
             // Export Settings Bottom Sheet Overlay Drawer
-            if (showExportSheet && cutoutBmp != null) {
+            if (showExportSheet && originalBmp != null) {
                 ExportBottomSheet(
                     viewModel = viewModel,
-                    subject = cutoutBmp!!,
+                    subject = cutoutBmp ?: originalBmp!!,
                     onDismiss = { showExportSheet = false },
                     performHaptic = { performHapticClick() }
                 )
@@ -385,18 +385,9 @@ fun InteractivePreviewArea(
 
                 // 1. Draw Transparent grid as backdrop
                 val checkWidth = 12.dp.toPx()
-                val stepSize = maxOf(1, checkWidth.toInt())
-                
-                // Constrain checkerboard loop to viewport space to prevent quadratic iteration count explosions under high zoom levels
-                val startX = (maxOf(targetLeft.toInt(), 0) - targetLeft.toInt()) / stepSize * stepSize + targetLeft.toInt()
-                val endX = minOf((targetLeft + targetSize.width).toInt(), width.toInt())
-                
-                val startY = (maxOf(targetTop.toInt(), 0) - targetTop.toInt()) / stepSize * stepSize + targetTop.toInt()
-                val endY = minOf((targetTop + targetSize.height).toInt(), height.toInt())
-
-                for (currX in startX..endX step stepSize) {
-                    for (currY in startY..endY step stepSize) {
-                        val isWhite = (((currX - targetLeft.toInt()) / stepSize) + (((currY - targetTop.toInt()) / stepSize))) % 2 == 0
+                for (currX in targetLeft.toInt()..(targetLeft + targetSize.width).toInt() step checkWidth.toInt()) {
+                    for (currY in targetTop.toInt()..(targetTop + targetSize.height).toInt() step checkWidth.toInt()) {
+                        val isWhite = ((currX / checkWidth.toInt()) + (currY / checkWidth.toInt())) % 2 == 0
                         drawRect(
                             color = if (isWhite) Color.White else Color(0xFFF1F5F9),
                             topLeft = Offset(currX.toFloat(), currY.toFloat()),
@@ -583,13 +574,34 @@ fun EditorBottomControlCard(
                     .padding(16.dp)
                     .height(130.dp)
             ) {
-                if (!cutoutAvailable) {
+                val toolsRequiringCutout = listOf("background", "blur", "shadow")
+                if (!cutoutAvailable && activeTool in toolsRequiringCutout) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Background not removed yet", fontWeight = FontWeight.Bold, color = BrandSecondary, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = onTriggerRemoveBg,
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("ai_cutout_trigger")
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Isolate Cutout with AI", fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                } else if (!cutoutAvailable && activeTool == "remove_bg") {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Isolate cutout using spark AI model", fontWeight = FontWeight.Bold, color = BrandSecondary, fontSize = 14.sp)
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = onTriggerRemoveBg,
@@ -1071,71 +1083,35 @@ fun ExportBottomSheet(
                                     // Draw foreground cutout
                                     canvas.drawBitmap(subject, 0f, 0f, null)
                                     
+                                    val resolver = context.contentResolver
                                     val filename = "BGWrap_${System.currentTimeMillis()}.${if (isPngTransparent) "png" else "jpg"}"
                                     val mimeType = if (isPngTransparent) "image/png" else "image/jpeg"
-                                    var isSavedSuccessfully = false
                                     
-                                    // Route 1: Try MediaStore insert
-                                    try {
-                                        val resolver = context.contentResolver
-                                        val contentValues = ContentValues().apply {
-                                            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                                            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/BGWrap")
-                                                put(MediaStore.MediaColumns.IS_PENDING, 1)
-                                            }
+                                    val contentValues = ContentValues().apply {
+                                        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/BGWrap")
+                                            put(MediaStore.MediaColumns.IS_PENDING, 1)
                                         }
-                                        
-                                        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                                        if (uri != null) {
-                                            resolver.openOutputStream(uri).use { out ->
-                                                if (out != null) {
-                                                    isSavedSuccessfully = resultBmp.compress(
-                                                        if (isPngTransparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
-                                                        compressionValue.toInt(),
-                                                        out
-                                                    )
-                                                }
-                                            }
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                                contentValues.clear()
-                                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                                                resolver.update(uri, contentValues, null, null)
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
                                     }
                                     
-                                    // Route 2: Fallback to direct public writing to Pictures/BGWrap
-                                    if (!isSavedSuccessfully) {
-                                        try {
-                                            val publicDir = File(
-                                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
-                                                "BGWrap"
-                                            )
-                                            if (!publicDir.exists()) {
-                                                publicDir.mkdirs()
-                                            }
-                                            val destFile = File(publicDir, filename)
-                                            destFile.outputStream().use { out ->
+                                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                                    var isSavedSuccessfully = false
+                                    if (uri != null) {
+                                        resolver.openOutputStream(uri).use { out ->
+                                            if (out != null) {
                                                 isSavedSuccessfully = resultBmp.compress(
                                                     if (isPngTransparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                                                     compressionValue.toInt(),
                                                     out
-                                                 )
+                                                )
                                             }
-                                            
-                                            if (isSavedSuccessfully) {
-                                                android.media.MediaScannerConnection.scanFile(
-                                                    context.applicationContext,
-                                                    arrayOf(destFile.absolutePath),
-                                                    arrayOf(mimeType)
-                                                ) { _, _ -> }
-                                            }
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
+                                        }
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                            contentValues.clear()
+                                            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                                            resolver.update(uri, contentValues, null, null)
                                         }
                                     }
                                     

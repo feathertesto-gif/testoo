@@ -131,28 +131,10 @@ class ProjectRepository(private val projectDao: ProjectDao, private val context:
     }
 
     companion object {
-        fun loadBitmap(path: String, maxDimension: Int = 1440): Bitmap? {
+        fun loadBitmap(path: String): Bitmap? {
             return try {
-                val options = BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                BitmapFactory.decodeFile(path, options)
-                
-                var inSampleSize = 1
-                if (options.outHeight > maxDimension || options.outWidth > maxDimension) {
-                    val halfHeight = options.outHeight / 2
-                    val halfWidth = options.outWidth / 2
-                    while (halfHeight / inSampleSize >= maxDimension && halfWidth / inSampleSize >= maxDimension) {
-                        inSampleSize *= 2
-                    }
-                }
-                
-                val finalOptions = BitmapFactory.Options().apply {
-                    this.inSampleSize = inSampleSize
-                }
-                BitmapFactory.decodeFile(path, finalOptions)
-            } catch (e: Throwable) {
-                e.printStackTrace()
+                BitmapFactory.decodeFile(path)
+            } catch (e: Exception) {
                 null
             }
         }

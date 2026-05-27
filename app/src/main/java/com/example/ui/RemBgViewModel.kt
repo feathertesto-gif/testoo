@@ -90,7 +90,7 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
     /**
      * Creates or loads a project entity from selected URI
      */
-    fun createProjectFromUri(context: Context, uri: Uri, onReady: () -> Unit) {
+    fun createProjectFromUri(context: Context, uri: Uri, initialTool: String = "remove_bg", onReady: () -> Unit) {
         viewModelScope.launch {
             editorLoading.value = true
             editorError.value = null
@@ -119,6 +119,7 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                 originalBitmap.value = loadedBmp
                 cutoutBitmap.value = null
                 maskBitmap.value = null
+                activeTool.value = initialTool
                 
                 // Reset edit parameters
                 backgroundType.value = BgType.TRANSPARENT
@@ -143,6 +144,7 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
             editorLoading.value = true
             editorError.value = null
             activeProject.value = project
+            activeTool.value = "remove_bg"
             
             try {
                 val orig = ProjectRepository.loadBitmap(project.originalImagePath)
@@ -350,16 +352,19 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                 try {
                     val stream = context.contentResolver.openInputStream(item.uri) ?: throw Exception("Stream unavailable")
                     val origPath = repository.saveUriToFile(stream, "bulk_orig")
+                    item.originalPath = origPath
                     
                     updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.4f, originalPath = origPath)
                     
                     // Call API using temp file saved
                     val res = apiService.removeBackground(File(origPath))
                     
-                    updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.8f)
+                    updateBulkItemStatus(item.id, BulkStatus.PROCESSING, 0.8f, originalPath = origPath)
                     
                     val processedPath = repository.saveBase64ToFile(res.image, "bulk_cutout")
                     val maskPath = repository.saveBase64ToFile(res.mask, "bulk_mask")
+                    
+                    item.processedPath = processedPath
                     
                     // Auto-insert file into database list so it appears in recent projects!
                     val proj = ProjectEntity(
@@ -370,7 +375,7 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                     )
                     repository.insert(proj)
                     
-                    updateBulkItemStatus(item.id, BulkStatus.SUCCESS, 1.0f, processedPath = processedPath)
+                    updateBulkItemStatus(item.id, BulkStatus.SUCCESS, 1.0f, originalPath = origPath, processedPath = processedPath)
                 } catch (e: Exception) {
                     e.printStackTrace()
                     updateBulkItemStatus(item.id, BulkStatus.FAILED, 1.0f, error = e.localizedMessage ?: "API error")
@@ -406,108 +411,61 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
     }
 
     /**
-     * Saves a successfully processed bulk item to the device gallery with robust fallback and ID-based resolution.
+     * Saves a successfully processed bulk item to the device gallery using MediaStore.
      */
-    fun saveBulkItemToGallery(context: Context, itemId: String, onResult: (Boolean, String?) -> Unit) {
+    fun saveBulkItemToGallery(context: Context, item: BulkItem, onSuccess: () -> Unit = {}) {
+        val processedPath = item.processedPath ?: return
         viewModelScope.launch {
-            val item = bulkQueue.value.find { it.id == itemId }
-            if (item == null) {
-                onResult(false, "Item not found in queue")
-                return@launch
-            }
-            val processedPath = item.processedPath
-            if (processedPath == null) {
-                onResult(false, "No processed background-removed image available yet")
-                return@launch
-            }
-
-            val result = withContext(Dispatchers.IO) {
+            val isSuccess = withContext(Dispatchers.IO) {
                 try {
                     val file = File(processedPath)
-                    if (!file.exists()) {
-                        return@withContext Pair(false, "Processed local file not found at $processedPath")
-                    }
+                    if (!file.exists()) return@withContext false
                     
+                    val resolver = context.contentResolver
                     val filename = "BGWrap_${System.currentTimeMillis()}_${item.id.take(4)}.png"
                     val mimeType = "image/png"
                     
-                    var isSuccess = false
-                    var errorMsg: String? = null
-                    
-                    // Route 1: MediaStore Database insert
-                    try {
-                        val resolver = context.contentResolver
-                        val contentValues = ContentValues().apply {
-                            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/BGWrap")
-                                put(MediaStore.MediaColumns.IS_PENDING, 1)
-                            }
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/BGWrap")
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
                         }
-                        
-                        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                        if (uri != null) {
-                            resolver.openOutputStream(uri).use { out ->
-                                if (out != null) {
-                                    file.inputStream().use { input ->
-                                        input.copyTo(out)
-                                        isSuccess = true
-                                    }
+                    }
+                    
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    var writeSuccess = false
+                    if (uri != null) {
+                        resolver.openOutputStream(uri).use { out ->
+                            if (out != null) {
+                                file.inputStream().use { input ->
+                                    input.copyTo(out)
+                                    writeSuccess = true
                                 }
                             }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                contentValues.clear()
-                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                                resolver.update(uri, contentValues, null, null)
-                            }
-                        } else {
-                            errorMsg = "MediaStore insert returned null"
                         }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        errorMsg = e.localizedMessage
-                    }
-                    
-                    // Route 2: Fallback to direct public folder write + media scan
-                    if (!isSuccess) {
-                        try {
-                            val publicDir = File(
-                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
-                                "BGWrap"
-                            )
-                            if (!publicDir.exists()) {
-                                publicDir.mkdirs()
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val updateValues = ContentValues().apply {
+                                put(MediaStore.MediaColumns.IS_PENDING, 0)
                             }
-                            val destFile = File(publicDir, filename)
-                            file.copyTo(destFile, overwrite = true)
-                            
-                            // Scan file to register it in system view immediately
-                            android.media.MediaScannerConnection.scanFile(
-                                context.applicationContext,
-                                arrayOf(destFile.absolutePath),
-                                arrayOf("image/png")
-                            ) { _, _ -> }
-                            isSuccess = true
-                            errorMsg = null
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            errorMsg = "Direct storage write failed: ${e.localizedMessage} (Original: $errorMsg)"
+                            resolver.update(uri, updateValues, null, null)
                         }
                     }
-                    
-                    Pair(isSuccess, errorMsg)
+                    writeSuccess
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    Pair(false, e.localizedMessage)
+                    false
                 }
             }
-            onResult(result.first, result.second)
+            if (isSuccess) {
+                onSuccess()
+            }
         }
     }
 
     /**
-     * Saves all successfully processed bulk items to the device gallery using MediaStore with robust public storage fallback.
+     * Saves all successfully processed bulk items to the device gallery in a single click.
      */
     fun saveAllBulkItemsToGallery(context: Context, onComplete: (count: Int) -> Unit) {
         viewModelScope.launch {
@@ -523,13 +481,11 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                     val file = File(item.processedPath!!)
                     if (!file.exists()) continue
                     
-                    val filename = "BGWrap_${System.currentTimeMillis()}_${item.id.take(4)}.png"
-                    val mimeType = "image/png"
-                    var singleSuccess = false
-                    
-                    // Route 1: Try MediaStore insert
                     try {
                         val resolver = context.contentResolver
+                        val filename = "BGWrap_${System.currentTimeMillis()}_${item.id.take(4)}.png"
+                        val mimeType = "image/png"
+                        
                         val contentValues = ContentValues().apply {
                             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
                             put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -545,46 +501,19 @@ class RemBgViewModel(private val repository: ProjectRepository) : ViewModel() {
                                 if (out != null) {
                                     file.inputStream().use { input ->
                                         input.copyTo(out)
-                                        singleSuccess = true
                                     }
                                 }
                             }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                contentValues.clear()
-                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                                resolver.update(uri, contentValues, null, null)
+                                val updateValues = ContentValues().apply {
+                                    put(MediaStore.MediaColumns.IS_PENDING, 0)
+                                }
+                                resolver.update(uri, updateValues, null, null)
                             }
+                            count++
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
-                    }
-                    
-                    // Route 2: Fallback to direct public writing
-                    if (!singleSuccess) {
-                        try {
-                            val publicDir = File(
-                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
-                                "BGWrap"
-                            )
-                            if (!publicDir.exists()) {
-                                publicDir.mkdirs()
-                            }
-                            val destFile = File(publicDir, filename)
-                            file.copyTo(destFile, overwrite = true)
-                            
-                            android.media.MediaScannerConnection.scanFile(
-                                context.applicationContext,
-                                arrayOf(destFile.absolutePath),
-                                arrayOf("image/png")
-                            ) { _, _ -> }
-                            singleSuccess = true
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-                    
-                    if (singleSuccess) {
-                        count++
                     }
                 }
                 count

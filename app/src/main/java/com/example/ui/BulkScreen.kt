@@ -61,16 +61,6 @@ fun BulkScreen(
         }
     }
 
-    // Fallback Content Picker (Guarantees old or custom emulators don't crash)
-    val fallbackMultipleImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) {
-            savedItemIds.clear()
-            viewModel.addImagesToBulkQueue(context, uris)
-        }
-    }
-
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -97,7 +87,7 @@ fun BulkScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
             )
         },
-        containerColor = Color(0xFFF8FAFC)
+        containerColor = Color.White
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -116,17 +106,9 @@ fun BulkScreen(
                     viewModel.clearBulkQueue()
                 },
                 onPickImages = {
-                    try {
-                        multipleImagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    } catch (e: Exception) {
-                        try {
-                            fallbackMultipleImagePicker.launch("image/*")
-                        } catch (ex: Exception) {
-                            Toast.makeText(context, "No media picking application available.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    multipleImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
                 },
                 onSaveAllToGallery = {
                     val successQuery = queue.filter { it.status == BulkStatus.SUCCESS && it.processedPath != null }
@@ -137,7 +119,7 @@ fun BulkScreen(
                                     savedItemIds.add(item.id)
                                 }
                             }
-                            Toast.makeText(context, "$count images saved to Gallery!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Saved $count images to Gallery successfully!", Toast.LENGTH_LONG).show()
                         } else {
                             Toast.makeText(context, "No completed images to save yet.", Toast.LENGTH_SHORT).show()
                         }
@@ -146,21 +128,13 @@ fun BulkScreen(
             )
 
             // Horizontal thin divider
-            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+            HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
 
             if (queue.isEmpty()) {
                 EmptyBulkQueueLayout(onAddClick = {
-                    try {
-                        multipleImagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    } catch (e: Exception) {
-                        try {
-                            fallbackMultipleImagePicker.launch("image/*")
-                        } catch (ex: Exception) {
-                            Toast.makeText(context, "No media picking application available.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    multipleImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
                 })
             } else {
                 LazyColumn(
@@ -178,15 +152,9 @@ fun BulkScreen(
                             isSaved = savedItemIds.contains(item.id),
                             onCancel = { viewModel.removeBulkItem(item) },
                             onSave = {
-                                viewModel.saveBulkItemToGallery(context, item.id) { success, errorMsg ->
-                                    if (success) {
-                                        if (!savedItemIds.contains(item.id)) {
-                                            savedItemIds.add(item.id)
-                                        }
-                                        Toast.makeText(context, "Saved to Gallery!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Save failed: ${errorMsg ?: "Error"}", Toast.LENGTH_LONG).show()
-                                    }
+                                viewModel.saveBulkItemToGallery(context, item) {
+                                    savedItemIds.add(item.id)
+                                    Toast.makeText(context, "Saved to Gallery!", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         )
@@ -217,139 +185,84 @@ fun BulkStatusHeader(
             .fillMaxWidth()
             .padding(16.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(Color.White)
+            .background(BrandSurfaceLight)
             .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
-            .padding(16.dp)
+            .padding(20.dp)
     ) {
-        if (totalCount == 0) {
-            // Empty queue placeholder header controls
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(BrandPrimaryLight),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.BurstMode,
-                        contentDescription = null,
-                        tint = BrandPrimary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "AI Batch Mode",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = BrandSecondary
-                    )
-                    Text(
-                        text = "High-precision automated background remover.",
-                        fontSize = 11.sp,
-                        color = BrandSecondaryLight
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = onPickImages,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("bulk_import_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = null,
-                    tint = Color.White
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Batch Progress",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrandPrimary,
+                    letterSpacing = 1.sp
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Select Pictures to Process", fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "$successCount / $totalCount Completed",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    color = BrandSecondary
+                )
             }
-        } else {
-            // Header stats
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "BATCH PROGRESS",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = BrandPrimary,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "$successCount of $totalCount Done",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Black,
-                        color = BrandSecondary
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(50.dp)
-                        .clip(CircleShape)
-                        .background(BrandPrimaryLight),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "$progressPercent%",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = BrandPrimary
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Linear Progress
-            LinearProgressIndicator(
-                progress = { if (totalCount > 0) successCount.toFloat() / totalCount else 0f },
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(CircleShape),
-                color = BrandPrimary,
-                trackColor = Color(0xFFF1F5F9),
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Row for Play/Pause and Clear controls - ONLY controls! (No Save All button inside to prevent horizontal layout squish)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(BrandPrimaryLight),
+                contentAlignment = Alignment.Center
             ) {
-                // Select more button to append items to queue
-                IconButton(
+                Text(
+                    text = "$progressPercent%",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrandPrimary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Linear continuous progress indicators
+        LinearProgressIndicator(
+            progress = { if (totalCount > 0) successCount.toFloat() / totalCount else 0f },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(CircleShape),
+            color = BrandPrimary,
+            trackColor = Color(0xFFE2E8F0),
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (totalCount == 0) {
+                // Large picking trigger when empty
+                Button(
                     onClick = onPickImages,
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFF1F5F9))
-                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                        .weight(1f)
+                        .height(44.dp)
+                        .testTag("bulk_import_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add More",
-                        tint = BrandSecondary
-                    )
+                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Select Images", fontWeight = FontWeight.Bold, color = Color.White)
                 }
-
+            } else {
+                // Pause resume action caps
                 if (isRunning) {
                     IconButton(
                         onClick = onPauseToggle,
@@ -367,7 +280,7 @@ fun BulkStatusHeader(
                     }
                 }
 
-                // AI Processing action button
+                // Process trigger button
                 Button(
                     onClick = { if (isRunning) onPauseToggle() else onStartProcess() },
                     modifier = Modifier
@@ -376,11 +289,10 @@ fun BulkStatusHeader(
                         .testTag("bulk_action_button"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isRunning) {
-                            if (isPaused) BrandPrimary else Color(0xFFF59E0B)
+                            if (isPaused) BrandPrimary else Color(0xFFFFB26F)
                         } else BrandPrimary
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
                         imageVector = if (isRunning) {
@@ -392,15 +304,14 @@ fun BulkStatusHeader(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (isRunning) {
-                            if (isPaused) "Resume" else "Pause"
+                            if (isPaused) "Resume Batch" else "Pause Batch"
                         } else "Run AI Engine",
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 13.sp
+                        color = Color.White
                     )
                 }
 
-                // Clear queue layout
+                // Clear/reset queue buttons
                 Button(
                     onClick = onClearAll,
                     modifier = Modifier
@@ -408,38 +319,35 @@ fun BulkStatusHeader(
                         .testTag("bulk_clear_button"),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFEF4444)),
-                    contentPadding = PaddingValues(horizontal = 12.dp)
+                    border = BorderStroke(1.dp, Color(0xFFEF4444))
                 ) {
-                    Text("Clear", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Clear", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             }
+        }
 
-            // DEDICATED FULL-WIDTH DOWNLOAD ALL BUTTON (Rendered below the Controls Row in the vertical Column stack)
-            if (successCount > 0) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = onSaveAllToGallery,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("bulk_save_all_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Save All",
-                        tint = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Download All to Gallery ($successCount)",
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
+        if (successCount > 0) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onSaveAllToGallery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("bulk_save_all_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowDownward,
+                    contentDescription = "Save All",
+                    tint = Color.White
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Save All to Gallery ($successCount)",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
     }
@@ -467,27 +375,23 @@ fun BulkItemRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left thumbnail with transparent background representation chess grid
-            Box(
+            // Left profile/URI image thumbnail
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(item.processedPath ?: item.uri)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFFF1F5F9))
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(item.processedPath ?: item.uri)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+                    .background(BrandSurfaceLight)
+            )
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Details and state labels
+            // Central details & loading slider
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.name,
@@ -498,6 +402,7 @@ fun BulkItemRow(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // Custom dynamic helper tags
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -506,19 +411,19 @@ fun BulkItemRow(
                         BulkStatus.WAITING -> {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFFF1F5F9))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(BrandPrimaryLight)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("In Queue", fontSize = 10.sp, color = BrandSecondaryLight, fontWeight = FontWeight.SemiBold)
+                                Text("In Queue", fontSize = 10.sp, color = BrandPrimary, fontWeight = FontWeight.SemiBold)
                             }
                         }
                         BulkStatus.PROCESSING -> {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0xFFFFFAEB))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text("AI Removing...", fontSize = 10.sp, color = Color(0xFFB57E00), fontWeight = FontWeight.SemiBold)
                             }
@@ -526,21 +431,21 @@ fun BulkItemRow(
                         BulkStatus.SUCCESS -> {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0xFFECFDF5))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("Success", fontSize = 10.sp, color = SuccessGreen, fontWeight = FontWeight.SemiBold)
+                                Text("Success", fontSize = 10.sp, color = Color(0xFF047857), fontWeight = FontWeight.SemiBold)
                             }
                         }
                         BulkStatus.FAILED -> {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(4.dp))
                                     .background(Color(0xFFFEF2F2))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("Failed", fontSize = 10.sp, color = ErrorRed, fontWeight = FontWeight.SemiBold)
+                                Text("Failed", fontSize = 10.sp, color = Color(0xFFB91C1C), fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -561,68 +466,24 @@ fun BulkItemRow(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Actions: Clear from list / Loading Spinner / HIGHLY PROMINENT DOWNLOAD BUTTONS for completed work!
+            // Actions (check icons or cancel triggers)
             when (item.status) {
                 BulkStatus.SUCCESS -> {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        if (isSaved) {
-                            // "Saved" soft check badge with tiny optional download duplicate button
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFFECFDF5))
-                                    .border(1.dp, Color(0xFFA7F3D0), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Saved",
-                                    tint = SuccessGreen,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Saved",
-                                    fontSize = 11.sp,
-                                    color = SuccessGreen,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            IconButton(onClick = onSave, modifier = Modifier.size(36.dp)) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDownward,
-                                    contentDescription = "Download Item Again",
-                                    tint = BrandSecondaryLight,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        } else {
-                            // SOLID VERY CLEAR DOWNLOAD/SAVE BUTTON (Satisfies one-by-one download requested perfectly)
-                            Button(
-                                onClick = onSave,
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandPrimary),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDownward,
-                                    contentDescription = "Download Item",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Save",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
+                    if (isSaved) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Saved to Gallery",
+                            tint = SuccessGreen,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    } else {
+                        IconButton(onClick = onSave) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDownward,
+                                contentDescription = "Download Item",
+                                tint = BrandPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
                 }

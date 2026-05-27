@@ -1,7 +1,6 @@
 package com.example.ui
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,23 +49,14 @@ fun HomeScreen(
     val context = LocalContext.current
     val projects by viewModel.projectsState.collectAsState()
     
+    var pendingInitialTool by remember { mutableStateOf("remove_bg") }
+    
     // Media Pickers
     val singleImagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.createProjectFromUri(context, uri) {
-                onNavigateToEditor()
-            }
-        }
-    }
-
-    // System Content Fallback Picker for single file loads
-    val fallbackSingleImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.createProjectFromUri(context, uri) {
+            viewModel.createProjectFromUri(context, uri, pendingInitialTool) {
                 onNavigateToEditor()
             }
         }
@@ -79,17 +69,10 @@ fun HomeScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    try {
-                        singleImagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    } catch (e: Exception) {
-                        try {
-                            fallbackSingleImagePicker.launch("image/*")
-                        } catch (ex: Exception) {
-                            Toast.makeText(context, "No gallery or file manager app available.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    pendingInitialTool = "remove_bg"
+                    singleImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
                 },
                 containerColor = BrandPrimary,
                 contentColor = Color.White,
@@ -119,17 +102,10 @@ fun HomeScreen(
             // Large Upload Action Card
             UploadActionCard(
                 onUploadClick = {
-                    try {
-                        singleImagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    } catch (e: Exception) {
-                        try {
-                            fallbackSingleImagePicker.launch("image/*")
-                        } catch (ex: Exception) {
-                            Toast.makeText(context, "No gallery or file manager app available.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    pendingInitialTool = "remove_bg"
+                    singleImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
                 }
             )
 
@@ -149,17 +125,10 @@ fun HomeScreen(
             QuickToolsSection(
                 onNavigateToBulk = onNavigateToBulk,
                 onQuickImport = {
-                    try {
-                        singleImagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    } catch (e: Exception) {
-                        try {
-                            fallbackSingleImagePicker.launch("image/*")
-                        } catch (ex: Exception) {
-                            Toast.makeText(context, "No gallery or file manager app available.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    pendingInitialTool = "crop"
+                    singleImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
                 }
             )
             
@@ -188,7 +157,7 @@ fun HomeGreetingHeader() {
     ) {
         Column {
             Text(
-                text = "$greeting ✨",
+                text = "$greeting,",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = BrandPrimary,
@@ -196,8 +165,8 @@ fun HomeGreetingHeader() {
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Creative Studio",
-                fontSize = 28.sp,
+                text = "Welcome to BGWRAP ✨",
+                fontSize = 26.sp,
                 fontWeight = FontWeight.Black,
                 color = BrandSecondary
             )
